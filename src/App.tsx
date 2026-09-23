@@ -1,126 +1,87 @@
 import "./styles.css";
-
-const project = {
-  "sourceNo": 7,
-  "id": "hxyfront-62005",
-  "port": 62005,
-  "title": "管风琴音管调音记录",
-  "domain": "管风琴维护",
-  "prompt": "做一个给管风琴维护人员使用的音管调音记录前端项目，可以记录教堂或音乐厅名称、音栓、音管编号、音高、音分偏差、温湿度、簧片状态和维修备注。页面需要有音栓列表、调音偏差表、温湿度记录、异常音管标记和单次维护报告页。",
-  "palette": [
-    "#854d0e",
-    "#475569",
-    "#0ea5e9"
-  ],
-  "metrics": [
-    "音栓数量",
-    "偏差超限",
-    "温度",
-    "湿度"
-  ],
-  "filters": [
-    "主音栓",
-    "簧片音栓",
-    "混合音栓",
-    "低音管"
-  ],
-  "fields": [
-    "场馆名称",
-    "音栓",
-    "音管编号",
-    "音高",
-    "音分偏差",
-    "维修备注"
-  ],
-  "records": [
-    [
-      "St.Mary",
-      "Trumpet 8'",
-      "C#4 +9cent",
-      "簧片需微调"
-    ],
-    [
-      "ConcertHall A",
-      "Principal 4'",
-      "G3 -3cent",
-      "正常"
-    ],
-    [
-      "Abbey Room",
-      "Bourdon 16'",
-      "F2 -12cent",
-      "标记复检"
-    ]
-  ]
-};
+import { useConsole } from "./tuningBatches";
+import {
+  BatchPanel,
+  SessionReport,
+  StartCard,
+  VenueOverview,
+} from "./tuningConsole";
+import { STOPS, VENUES } from "./tuningRules";
 
 function App() {
+  const console = useConsole();
+  const { session } = console;
+
+  const venue = session
+    ? VENUES.find((v) => v.id === session.venueId) ?? VENUES[0]
+    : null;
+  const venueStops = session
+    ? STOPS.filter((s) => s.venueId === session.venueId)
+    : [];
+
   return (
     <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
+      <header className="hero">
+        <p>管风琴维护 · 调音交接台</p>
+        <h1>音管调音交接台</h1>
+        <span>
+          一次维护按音栓生成交接批次；温湿度任一缺失，或簧片异常但备注为空，整批不能交接，补齐后自动恢复。
+          同组内已通过音管被新测量改动时，仅该管及其报告退回待复核，旧结论保留。
+        </span>
+      </header>
 
-      <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[86, 14, 7, 32][index] ?? 12}</strong>
-          </article>
-        ))}
-      </section>
+      <VenueOverview
+        venues={VENUES}
+        stops={STOPS}
+        pipes={console.pipes}
+        activeVenueId={session?.venueId}
+      />
 
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}筛选</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
+      {!session && (
+        <StartCard
+          venues={VENUES}
+          stops={STOPS}
+          pipes={console.pipes}
+          onStart={console.createSession}
+        />
+      )}
 
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存草稿</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
+      {session && venue && (
+        <>
+          <SessionReport
+            session={session}
+            venue={venue}
+            stops={STOPS}
+            pipes={console.pipes}
+          />
 
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>历史记录</p>
-            <h2>近期工作台</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+          {session.batches.map((batch) => {
+            const stop = venueStops.find((s) => s.id === batch.stopId);
+            if (!stop) return null;
+            return (
+              <BatchPanel
+                key={batch.id}
+                stop={stop}
+                batch={batch}
+                pipes={console.pipesByStop(stop.id)}
+                onUpdate={(pipeId, field, value) =>
+                  console.updateDraft(batch.id, pipeId, field, value)
+                }
+                onReset={(pipeId) => console.resetDraft(batch.id, pipeId, "base")}
+                onResolve={(pipeId) => console.resolveReview(batch.id, pipeId)}
+                onHandover={() => console.handover(batch.id)}
+              />
+            );
+          })}
+        </>
+      )}
+
+      <footer className="data-bar">
+        <span>数据保存在浏览器本地（localStorage）</span>
+        <button type="button" onClick={console.resetAll}>
+          清空并恢复预置数据
+        </button>
+      </footer>
     </main>
   );
 }
